@@ -1,0 +1,166 @@
+#include <Wire.h>
+#include "SHTSensor.h"
+#include <Adafruit_MPL3115A2.h>
+#include "String.h"
+#include "LiquidCrystal.h"
+
+#define Rl 47000
+#define Vcc 3.3
+#define Ro 33000
+#define ButPIN 19 //Pullup resistor switch
+#define LCD_PWRPIN 53
+#define LCD_LIGHTPIN 48
+#define APIN A0
+
+SHTSensor sht;
+Adafruit_MPL3115A2 baro = Adafruit_MPL3115A2();
+LiquidCrystal lcd(24,26,28,30,32,34);  //LCD PIN mapping for Mega 
+
+String warning = "WARNING! BAD";
+String airquality = "AIR QUALITY";
+bool init_sht = 0;
+bool init_mpl = 0;
+float humidity = 0;
+float temperature = 0;
+bool warningflag = 0;
+int butstate;
+float pascals = 0;
+float altm = 0;
+float tempC = 0;
+
+void LCDplay(void) //LCD Display function for temperature
+{
+  lcd.begin(16, 2);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("RH: ");
+  lcd.print(humidity);
+  lcd.print(" %");
+  lcd.setCursor(0,1);
+  lcd.print("T:  ");
+  lcd.print(temperature);
+  lcd.print(" C");
+  
+  if(warningflag == 1)
+  {
+  lcd.setCursor(0,0);
+  lcd.print(warning);
+  lcd.setCursor(0,1);
+  lcd.print(airquality);
+  }
+}
+
+void ButtonHandler(void){
+  butstate = digitalRead(ButPIN);
+  if (butstate == LOW)
+  {
+    digitalWrite(LCD_LIGHTPIN,HIGH);
+    LCDplay();
+    Serial.println("UP");
+  }
+  else if(butstate == HIGH){
+  digitalWrite(LCD_LIGHTPIN,LOW); 
+ }
+}
+
+void SHT_handler(){
+  if(init_sht == 1){
+  sht.readSample();
+    humidity = sht.getHumidity();
+    humidity = humidity;
+    Serial.print("  RH: ");
+    Serial.print(humidity, 2);
+    Serial.print("\n");
+  
+    temperature = sht.getTemperature();
+    temperature = temperature;
+    Serial.print("  T:  ");
+    Serial.print(temperature, 2);
+    Serial.print("\n");
+  }
+}
+void MPL_handler(){
+  if (! baro.begin()) 
+  {
+    init_mpl = 0;
+  }
+  else{
+    init_mpl = 1;
+    }
+  
+  if(init_mpl == 1){
+    pascals = baro.getPressure();
+    Serial.print(pascals/3377); Serial.println(" Inches (Hg)");
+
+    altm = baro.getAltitude();
+    Serial.print(altm); Serial.println(" meters");
+
+    tempC = baro.getTemperature();
+    Serial.print(tempC); Serial.println("*C");
+  }
+}
+
+void setup() {
+
+  Wire.begin();
+  Serial.begin(9600);
+  delay(1000); // let serial console settle
+/*Initialize SHT sensor */
+  if (sht.init()) {
+    Serial.print("init SHT: success\n");
+    init_sht = 1;
+  }
+  else {
+    Serial.print("init SHT: failed\n");
+    init_sht = 0;
+  }
+  /*Initialize MPL sensor*/
+  if (! baro.begin()) 
+  {
+    Serial.println("Couldnt find MPL sensor");
+    init_mpl = 0;
+  }
+  else{
+    Serial.println(" init MPL: success ");
+    init_mpl = 1;
+    }
+    
+    pinMode(ButPIN,INPUT_PULLUP);
+    pinMode(LCD_LIGHTPIN,OUTPUT);
+    pinMode(LCD_PWRPIN,OUTPUT);
+    digitalWrite(LCD_LIGHTPIN,LOW);
+    digitalWrite(LCD_PWRPIN,HIGH);
+
+    attachInterrupt(digitalPinToInterrupt(ButPIN), ButtonHandler, FALLING); // attached interrupt to pin for detecting button press
+
+    lcd.begin(16, 2);
+    lcd.clear();
+}
+
+void loop() {
+  
+  SHT_handler();
+  
+  MPL_handler();
+  
+  float sensorValue = analogRead(APIN);
+  float voltage = sensorValue * (Vcc / 1023.0);// Convert the analog reading (which goes from 0 - 1023) to a voltage (0 - 3.3V):
+  float resistance = (Vcc/voltage - 1)*Rl;
+  float output = resistance/Ro; //Outputs  resistance by normal resistance for further analysis:
+  
+  if(output <= 0.8){
+    warningflag = 1 ;
+    Serial.println(warning);
+    Serial.println(airquality);
+  }
+  else{
+    warningflag = 0;
+  }
+  
+  Serial.print("OUT: ");
+  Serial.print(resistance);
+  Serial.print("\n");
+  ButtonHandler(); // Lights up LCD on button press
+  
+  delay(1000);
+}
